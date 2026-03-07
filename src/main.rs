@@ -5,8 +5,8 @@ mod output;
 use std::collections::HashMap;
 
 use clap::Parser;
-use cli::{ApikeyAction, Cli, Command, EntityAction, NextMode, ProjectAction, ReviewAction, UserAction};
-use output::{print, print_error};
+use cli::{ApikeyAction, BillingAction, Cli, Command, EntityAction, NextMode, ProjectAction, ReviewAction, UserAction};
+use output::{print_for_command, print_error};
 
 const DEFAULT_URL: &str = "http://127.0.0.1:9876";
 
@@ -37,7 +37,7 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            print(value, &cli.format);
+            print_for_command(value, &cli.format, &command);
             std::process::exit(0);
         }
         Err(msg) => {
@@ -378,6 +378,19 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
                 }
                 flags.insert("name".to_string(), name.clone());
                 ("apikey".to_string(), vec!["create".to_string()], flags)
+            }
+        },
+
+        Command::Billing { action } => match action.clone().unwrap_or(BillingAction::Balance) {
+            BillingAction::Balance => {
+                ("billing".to_string(), vec!["balance".to_string()], flags)
+            }
+            BillingAction::History { limit } => {
+                flags.insert("limit".to_string(), limit.to_string());
+                ("billing".to_string(), vec!["history".to_string()], flags)
+            }
+            BillingAction::Tiers => {
+                ("billing".to_string(), vec!["tiers".to_string()], flags)
             }
         },
 

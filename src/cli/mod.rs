@@ -149,6 +149,12 @@ pub enum Command {
         action: ApikeyAction,
     },
 
+    /// Manage billing and credits
+    Billing {
+        #[command(subcommand)]
+        action: Option<BillingAction>,
+    },
+
     /// Authenticate with the Cantrip daemon
     Login {
         /// API key (interactive prompt if omitted)
@@ -264,6 +270,20 @@ pub enum ApikeyAction {
         #[arg(long, default_value = "default")]
         name: String,
     },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum BillingAction {
+    /// Show credit balance (default)
+    Balance,
+    /// Show credit transaction history
+    History {
+        /// Maximum number of entries to show
+        #[arg(long, default_value = "20")]
+        limit: u32,
+    },
+    /// Show available credit packs and pricing
+    Tiers,
 }
 
 #[derive(Subcommand, Debug, Clone)]
