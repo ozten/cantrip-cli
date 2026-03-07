@@ -143,6 +143,22 @@ pub enum Command {
         action: ApikeyAction,
     },
 
+    /// Authenticate with the Cantrip daemon
+    Login {
+        /// API key (interactive prompt if omitted)
+        #[arg(long)]
+        key: Option<String>,
+        /// Daemon URL (default: http://127.0.0.1:9876)
+        #[arg(long)]
+        url: Option<String>,
+    },
+
+    /// Clear stored credentials
+    Logout,
+
+    /// Show current identity
+    Whoami,
+
     /// [internal] Tick the outer loop
     #[command(name = "_tick", hide = true)]
     Tick,
@@ -235,9 +251,9 @@ pub enum UserAction {
 pub enum ApikeyAction {
     /// Create an API key for a user
     Create {
-        /// User ID
+        /// User ID (optional when authenticated)
         #[arg(long)]
-        user: String,
+        user: Option<String>,
         /// Key name (for identification)
         #[arg(long, default_value = "default")]
         name: String,

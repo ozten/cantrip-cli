@@ -1,20 +1,39 @@
 mod cli;
+mod credentials;
 mod output;
 
 use std::collections::HashMap;
 
 use clap::Parser;
-use cli::{Cli, Command, EntityAction, NextMode, ReviewAction, UserAction, ApikeyAction};
+use cli::{ApikeyAction, Cli, Command, EntityAction, NextMode, ReviewAction, UserAction};
 use output::{print, print_error};
 
-const DEFAULT_PORT: u16 = 9876;
+const DEFAULT_URL: &str = "http://127.0.0.1:9876";
 
 fn main() {
     let cli = Cli::parse();
 
+    // Login and Logout short-circuit before build_request
+    match &cli.command {
+        Command::Login { key, url } => {
+            std::process::exit(handle_login(key.as_deref(), url.as_deref()));
+        }
+        Command::Logout => {
+            std::process::exit(handle_logout());
+        }
+        _ => {}
+    }
+
     let (command, args, flags) = build_request(&cli);
     match send_request(&command, &args, &flags, &cli) {
         Ok(value) => {
+            // For whoami, show a friendly output when not authenticated
+            if matches!(cli.command, Command::Whoami) {
+                if let Some(false) = value.get("authenticated").and_then(|v| v.as_bool()) {
+                    eprintln!("Not authenticated. Run `cantrip login` to authenticate.");
+                    std::process::exit(1);
+                }
+            }
             print(value, &cli.format);
             std::process::exit(0);
         }
@@ -23,6 +42,150 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn handle_login(key: Option<&str>, url: Option<&str>) -> i32 {
+    let api_key = match key {
+        Some(k) => k.to_string(),
+        None => {
+            eprintln!("Enter your API key (from dashboard.cantrip.ai/settings):");
+            match rpassword::read_password() {
+                Ok(k) if !k.trim().is_empty() => k.trim().to_string(),
+                _ => {
+                    eprintln!("Error: no key provided.");
+                    return 1;
+                }
+            }
+        }
+    };
+
+    let daemon_url = resolve_url_for_login(url);
+
+    // Validate by calling whoami
+    eprintln!("Validating key against {}...", daemon_url);
+
+    let request_url = format!("{daemon_url}/api/cantrip");
+    let body = serde_json::json!({
+        "command": "whoami",
+        "args": [],
+        "flags": {},
+    });
+
+    let result = ureq::post(&request_url)
+        .header("content-type", "application/json")
+        .header("authorization", &format!("Bearer {}", api_key))
+        .send(body.to_string().as_bytes());
+
+    match result {
+        Ok(response) => {
+            let status = response.status();
+            let body_str = response
+                .into_body()
+                .read_to_string()
+                .unwrap_or_default();
+
+            if status.as_u16() == 200 {
+                // Parse whoami response for display
+                let team = serde_json::from_str::<serde_json::Value>(&body_str)
+                    .ok()
+                    .and_then(|v| v.get("team").and_then(|t| t.as_str()).map(String::from))
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let prefix: String = if api_key.len() >= 12 {
+                    api_key[..12].to_string()
+                } else {
+                    api_key.clone()
+                };
+
+                let creds = credentials::Credentials {
+                    api_key,
+                    daemon_url,
+                };
+                match credentials::save(&creds) {
+                    Ok(()) => {
+                        eprintln!("Authenticated as {}... (team: {})", prefix, team);
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("Error saving credentials: {}", e);
+                        1
+                    }
+                }
+            } else if status.as_u16() == 401 {
+                eprintln!("Invalid API key.");
+                1
+            } else {
+                let err_msg = serde_json::from_str::<serde_json::Value>(&body_str)
+                    .ok()
+                    .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+                    .unwrap_or_else(|| format!("unexpected status {status}"));
+                eprintln!("Error: {}", err_msg);
+                1
+            }
+        }
+        Err(e) => {
+            eprintln!("Cannot reach daemon at {}: {}", daemon_url, e);
+            1
+        }
+    }
+}
+
+fn handle_logout() -> i32 {
+    if credentials::delete() {
+        eprintln!("Logged out.");
+    } else {
+        eprintln!("Not logged in.");
+    }
+    0
+}
+
+/// Resolve URL specifically for login (--url flag or env var or default).
+/// Does not read credential file (we're creating it).
+fn resolve_url_for_login(url_flag: Option<&str>) -> String {
+    if let Some(u) = url_flag {
+        return u.trim_end_matches('/').to_string();
+    }
+    if let Ok(u) = std::env::var("CANTRIP_URL") {
+        if !u.is_empty() {
+            return u.trim_end_matches('/').to_string();
+        }
+    }
+    DEFAULT_URL.to_string()
+}
+
+/// Resolve the daemon URL from env var, credential file, or default.
+fn resolve_url() -> String {
+    if let Ok(u) = std::env::var("CANTRIP_URL") {
+        if !u.is_empty() {
+            return u.trim_end_matches('/').to_string();
+        }
+    }
+    if let Some(creds) = credentials::load() {
+        if !creds.daemon_url.is_empty() {
+            return creds.daemon_url;
+        }
+    }
+    DEFAULT_URL.to_string()
+}
+
+/// Resolve the API key from env var or credential file.
+/// Returns None if no key is available (prints warning for non-auth commands).
+fn resolve_api_key(command: &Command) -> Option<String> {
+    if let Ok(k) = std::env::var("CANTRIP_API_KEY") {
+        if !k.is_empty() {
+            return Some(k);
+        }
+    }
+    if let Some(creds) = credentials::load() {
+        if !creds.api_key.is_empty() {
+            return Some(creds.api_key);
+        }
+    }
+    // Warn for commands that aren't login/logout (those are already handled)
+    if !matches!(command, Command::Login { .. } | Command::Logout) {
+        eprintln!("Warning: not authenticated. Run `cantrip login` to authenticate.");
+    }
+    None
 }
 
 /// Convert parsed CLI args into the {command, args, flags} envelope.
@@ -153,7 +316,12 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
         Command::Contact { action } => build_entity_request("contact", action, &mut flags),
 
         Command::User { action } => match action {
-            UserAction::Create { email, name, team, team_display } => {
+            UserAction::Create {
+                email,
+                name,
+                team,
+                team_display,
+            } => {
                 flags.insert("email".to_string(), email.clone());
                 flags.insert("name".to_string(), name.clone());
                 flags.insert("team".to_string(), team.clone());
@@ -166,11 +334,18 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
 
         Command::Apikey { action } => match action {
             ApikeyAction::Create { user, name } => {
-                flags.insert("user".to_string(), user.clone());
+                if let Some(u) = user {
+                    flags.insert("user".to_string(), u.clone());
+                }
                 flags.insert("name".to_string(), name.clone());
                 ("apikey".to_string(), vec!["create".to_string()], flags)
             }
         },
+
+        Command::Whoami => ("whoami".to_string(), vec![], flags),
+
+        // Login/Logout are handled before build_request is called
+        Command::Login { .. } | Command::Logout => unreachable!(),
 
         Command::Tick => ("_tick".to_string(), vec![], flags),
         Command::Loop { id } => ("_loop".to_string(), vec![id.clone()], flags),
@@ -241,8 +416,8 @@ fn send_request(
     flags: &HashMap<String, String>,
     cli: &Cli,
 ) -> Result<serde_json::Value, String> {
-    let port = DEFAULT_PORT;
-    let url = format!("http://127.0.0.1:{port}/api/cantrip");
+    let url = format!("{}/api/cantrip", resolve_url());
+    let api_key = resolve_api_key(&cli.command);
 
     let body = serde_json::json!({
         "command": command,
@@ -254,15 +429,21 @@ fn send_request(
         eprintln!(">>> POST {} {}", url, body);
     }
 
-    let response = ureq::post(&url)
-        .header("content-type", "application/json")
-        .send(body.to_string().as_bytes())
-        .map_err(|e| {
-            format!(
-                "failed to connect to cantrip daemon at 127.0.0.1:{port}: {e}\n\
-                 Hint: start the daemon with `cantrip-server`"
-            )
-        })?;
+    let mut req = ureq::post(&url).header("content-type", "application/json");
+
+    if let Some(ref key) = api_key {
+        req = req.header("authorization", &format!("Bearer {key}"));
+    }
+
+    let response = req.send(body.to_string().as_bytes()).map_err(|e| {
+        let base_url = resolve_url();
+        format!(
+            "failed to connect to cantrip daemon at {base_url}: {e}\n\
+             Hint: start the daemon with `cantrip-server`"
+        )
+    })?;
+
+    let status = response.status();
 
     let response_body = response
         .into_body()
@@ -270,13 +451,44 @@ fn send_request(
         .map_err(|e| format!("failed to read response: {e}"))?;
 
     if cli.verbose {
-        eprintln!("<<< {}", &response_body[..response_body.len().min(500)]);
+        eprintln!("<<< [{}] {}", status, &response_body[..response_body.len().min(500)]);
     }
 
     let value: serde_json::Value =
         serde_json::from_str(&response_body).map_err(|e| format!("invalid JSON response: {e}"))?;
 
-    // If the server returned an error envelope, surface it.
+    // Handle HTTP error status codes with contextual hints
+    if status.as_u16() == 401 {
+        let msg = value
+            .get("message")
+            .or_else(|| value.get("error"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unauthorized");
+        return Err(format!(
+            "{msg}\nHint: your API key may have been revoked. Run `cantrip login` to re-authenticate."
+        ));
+    }
+
+    if status.as_u16() == 502 || status.as_u16() == 503 {
+        let msg = value
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("service unavailable");
+        return Err(format!(
+            "Daemon unavailable: {msg}\nHint: is cantrip-server running?"
+        ));
+    }
+
+    if status.as_u16() >= 400 {
+        let msg = value
+            .get("message")
+            .or_else(|| value.get("error"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("request failed");
+        return Err(format!("{} (HTTP {})", msg, status));
+    }
+
+    // If the server returned an error envelope in a 200 response, surface it.
     if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
         return Err(err.to_string());
     }
