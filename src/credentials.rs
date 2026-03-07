@@ -5,6 +5,8 @@ use std::path::PathBuf;
 pub struct Credentials {
     pub api_key: String,
     pub daemon_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_project: Option<String>,
 }
 
 /// Returns the path to the credentials file: ~/.config/cantrip/credentials.json
@@ -77,6 +79,20 @@ pub fn save(creds: &Credentials) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Get the default project slug from stored credentials.
+pub fn get_default_project() -> Option<String> {
+    load().and_then(|c| c.default_project)
+}
+
+/// Set the default project slug in stored credentials.
+pub fn set_default_project(slug: &str) -> Result<(), String> {
+    let mut creds = load().ok_or(
+        "not logged in. Run `cantrip login` first.".to_string(),
+    )?;
+    creds.default_project = Some(slug.to_string());
+    save(&creds)
 }
 
 /// Delete the credentials file. Returns true if file existed.

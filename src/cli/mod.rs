@@ -131,6 +131,12 @@ pub enum Command {
         action: EntityAction,
     },
 
+    /// Manage projects
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
+
     /// Manage users
     User {
         #[command(subcommand)]
@@ -257,5 +263,28 @@ pub enum ApikeyAction {
         /// Key name (for identification)
         #[arg(long, default_value = "default")]
         name: String,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ProjectAction {
+    /// List all projects
+    List,
+    /// Create a new project (alias for init)
+    Create {
+        /// Project name (required)
+        #[arg(long)]
+        name: String,
+        /// Project description (required)
+        #[arg(long)]
+        description: String,
+        /// Path to a product brief file (optional)
+        #[arg(long)]
+        brief: Option<String>,
+    },
+    /// Set the default project for future commands
+    Switch {
+        /// Project slug to switch to
+        slug: String,
     },
 }

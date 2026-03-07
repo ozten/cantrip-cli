@@ -5,7 +5,7 @@ mod output;
 use std::collections::HashMap;
 
 use clap::Parser;
-use cli::{ApikeyAction, Cli, Command, EntityAction, NextMode, ReviewAction, UserAction};
+use cli::{ApikeyAction, Cli, Command, EntityAction, NextMode, ProjectAction, ReviewAction, UserAction};
 use output::{print, print_error};
 
 const DEFAULT_URL: &str = "http://127.0.0.1:9876";
@@ -13,13 +13,16 @@ const DEFAULT_URL: &str = "http://127.0.0.1:9876";
 fn main() {
     let cli = Cli::parse();
 
-    // Login and Logout short-circuit before build_request
+    // Login, Logout, and Project Switch short-circuit before build_request
     match &cli.command {
         Command::Login { key, url } => {
             std::process::exit(handle_login(key.as_deref(), url.as_deref()));
         }
         Command::Logout => {
             std::process::exit(handle_logout());
+        }
+        Command::Project { action: ProjectAction::Switch { slug } } => {
+            std::process::exit(handle_project_switch(slug));
         }
         _ => {}
     }
@@ -97,9 +100,12 @@ fn handle_login(key: Option<&str>, url: Option<&str>) -> i32 {
                     api_key.clone()
                 };
 
+                // Preserve existing default_project across re-login
+                let default_project = credentials::get_default_project();
                 let creds = credentials::Credentials {
                     api_key,
                     daemon_url,
+                    default_project,
                 };
                 match credentials::save(&creds) {
                     Ok(()) => {
@@ -137,6 +143,19 @@ fn handle_logout() -> i32 {
         eprintln!("Not logged in.");
     }
     0
+}
+
+fn handle_project_switch(slug: &str) -> i32 {
+    match credentials::set_default_project(slug) {
+        Ok(()) => {
+            eprintln!("Switched default project to '{}'.", slug);
+            0
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            1
+        }
+    }
 }
 
 /// Resolve URL specifically for login (--url flag or env var or default).
@@ -197,6 +216,8 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
     }
     if let Some(ref p) = cli.project {
         flags.insert("project".to_string(), p.clone());
+    } else if let Some(default) = credentials::get_default_project() {
+        flags.insert("project".to_string(), default);
     }
 
     match &cli.command {
@@ -315,6 +336,24 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
         Command::Competitor { action } => build_entity_request("competitor", action, &mut flags),
         Command::Contact { action } => build_entity_request("contact", action, &mut flags),
 
+        Command::Project { action } => match action {
+            ProjectAction::List => ("project list".to_string(), vec![], flags),
+            ProjectAction::Create {
+                name,
+                description,
+                brief,
+            } => {
+                flags.insert("name".to_string(), name.clone());
+                flags.insert("description".to_string(), description.clone());
+                if let Some(b) = brief {
+                    flags.insert("brief".to_string(), b.clone());
+                }
+                ("init".to_string(), vec![], flags)
+            }
+            // Switch is handled before build_request is called
+            ProjectAction::Switch { .. } => unreachable!(),
+        },
+
         Command::User { action } => match action {
             UserAction::Create {
                 email,
@@ -344,7 +383,7 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
 
         Command::Whoami => ("whoami".to_string(), vec![], flags),
 
-        // Login/Logout are handled before build_request is called
+        // Login/Logout/Project Switch are handled before build_request is called
         Command::Login { .. } | Command::Logout => unreachable!(),
 
         Command::Tick => ("_tick".to_string(), vec![], flags),
