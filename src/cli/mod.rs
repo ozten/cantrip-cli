@@ -160,7 +160,7 @@ pub enum Command {
         /// API key (interactive prompt if omitted)
         #[arg(long)]
         key: Option<String>,
-        /// Daemon URL (default: http://127.0.0.1:9876)
+        /// API URL (default: https://api.cantrip.ai)
         #[arg(long)]
         url: Option<String>,
     },

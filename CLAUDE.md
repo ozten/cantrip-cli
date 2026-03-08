@@ -19,7 +19,7 @@ src/
 
 ## How It Works
 
-Every command maps to a `{command, args, flags}` JSON envelope POSTed to `http://127.0.0.1:9876/api/cantrip`. The daemon (`cantrip-server` in the `cantrip` repo) does all the work.
+Every command maps to a `{command, args, flags}` JSON envelope POSTed to `https://api.cantrip.ai/api/cantrip`. The server does all the work.
 
 ## Related Repos
 

@@ -8,7 +8,7 @@ use clap::Parser;
 use cli::{ApikeyAction, BillingAction, Cli, Command, EntityAction, NextMode, ProjectAction, ReviewAction, UserAction};
 use output::{print_for_command, print_error};
 
-const DEFAULT_URL: &str = "http://127.0.0.1:9876";
+const DEFAULT_URL: &str = "https://api.cantrip.ai";
 
 fn main() {
     let cli = Cli::parse();
@@ -490,8 +490,8 @@ fn send_request(
     let response = req.send(body.to_string().as_bytes()).map_err(|e| {
         let base_url = resolve_url();
         format!(
-            "failed to connect to cantrip daemon at {base_url}: {e}\n\
-             Hint: start the daemon with `cantrip-server`"
+            "failed to connect to Cantrip API at {base_url}: {e}\n\
+             Hint: check your network connection and API key"
         )
     })?;
 
@@ -527,7 +527,7 @@ fn send_request(
             .and_then(|v| v.as_str())
             .unwrap_or("service unavailable");
         return Err(format!(
-            "Daemon unavailable: {msg}\nHint: is cantrip-server running?"
+            "Cantrip API unavailable: {msg}\nHint: check https://status.cantrip.ai or try again shortly"
         ));
     }
 
