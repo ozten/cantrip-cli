@@ -149,10 +149,10 @@ pub enum Command {
         action: ApikeyAction,
     },
 
-    /// Manage billing and credits
-    Billing {
+    /// Manage credits and usage metering
+    Meter {
         #[command(subcommand)]
-        action: Option<BillingAction>,
+        action: Option<MeterAction>,
     },
 
     /// Authenticate with the Cantrip daemon
@@ -273,7 +273,7 @@ pub enum ApikeyAction {
 }
 
 #[derive(Subcommand, Debug, Clone)]
-pub enum BillingAction {
+pub enum MeterAction {
     /// Show credit balance (default)
     Balance,
     /// Show credit transaction history
@@ -301,6 +301,22 @@ pub enum ProjectAction {
         /// Path to a product brief file (optional)
         #[arg(long)]
         brief: Option<String>,
+    },
+    /// Update a project's name or description
+    Update {
+        /// Project slug (uses default project if omitted)
+        slug: Option<String>,
+        /// New display name
+        #[arg(long)]
+        name: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Delete a project and all its data
+    Delete {
+        /// Project slug (uses default project if omitted)
+        slug: Option<String>,
     },
     /// Set the default project for future commands
     Switch {

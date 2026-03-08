@@ -5,7 +5,7 @@ mod output;
 use std::collections::HashMap;
 
 use clap::Parser;
-use cli::{ApikeyAction, BillingAction, Cli, Command, EntityAction, NextMode, ProjectAction, ReviewAction, UserAction};
+use cli::{ApikeyAction, MeterAction, Cli, Command, EntityAction, NextMode, ProjectAction, ReviewAction, UserAction};
 use output::{print_for_command, print_error};
 
 const DEFAULT_URL: &str = "https://api.cantrip.ai";
@@ -350,6 +350,30 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
                 }
                 ("init".to_string(), vec![], flags)
             }
+            ProjectAction::Update {
+                slug,
+                name,
+                description,
+            } => {
+                let mut args = vec![];
+                if let Some(s) = slug {
+                    args.push(s.clone());
+                }
+                if let Some(n) = name {
+                    flags.insert("name".to_string(), n.clone());
+                }
+                if let Some(d) = description {
+                    flags.insert("description".to_string(), d.clone());
+                }
+                ("project update".to_string(), args, flags)
+            }
+            ProjectAction::Delete { slug } => {
+                let mut args = vec![];
+                if let Some(s) = slug {
+                    args.push(s.clone());
+                }
+                ("project delete".to_string(), args, flags)
+            }
             // Switch is handled before build_request is called
             ProjectAction::Switch { .. } => unreachable!(),
         },
@@ -381,16 +405,16 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
             }
         },
 
-        Command::Billing { action } => match action.clone().unwrap_or(BillingAction::Balance) {
-            BillingAction::Balance => {
-                ("billing".to_string(), vec!["balance".to_string()], flags)
+        Command::Meter { action } => match action.clone().unwrap_or(MeterAction::Balance) {
+            MeterAction::Balance => {
+                ("meter".to_string(), vec!["balance".to_string()], flags)
             }
-            BillingAction::History { limit } => {
+            MeterAction::History { limit } => {
                 flags.insert("limit".to_string(), limit.to_string());
-                ("billing".to_string(), vec!["history".to_string()], flags)
+                ("meter".to_string(), vec!["history".to_string()], flags)
             }
-            BillingAction::Tiers => {
-                ("billing".to_string(), vec!["tiers".to_string()], flags)
+            MeterAction::Tiers => {
+                ("meter".to_string(), vec!["tiers".to_string()], flags)
             }
         },
 
