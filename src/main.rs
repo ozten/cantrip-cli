@@ -228,8 +228,12 @@ fn build_request(cli: &Cli) -> (String, Vec<String>, HashMap<String, String>) {
         } => {
             flags.insert("name".to_string(), name.clone());
             flags.insert("description".to_string(), description.clone());
-            if let Some(b) = brief {
-                flags.insert("brief".to_string(), b.clone());
+            if let Some(path) = brief {
+                let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                    eprintln!("error: cannot read brief file '{}': {}", path, e);
+                    std::process::exit(1);
+                });
+                flags.insert("brief_text".to_string(), content);
             }
             ("init".to_string(), vec![], flags)
         }
